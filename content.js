@@ -43,6 +43,15 @@ export const AREAS = [
 ];
 export const STATEMENTS = AREAS.flatMap((a, ai) => a.items.map(q => ({ q, area: ai })));
 
+// UK population context for the ASRS-6 result, from NHS England's Adult Psychiatric Morbidity Survey 2023/4
+// (published 27 Nov 2025). Population statistics only - never a personal probability.
+export const APMS = {
+  title: 'How this compares with England',
+  body: 'These same six questions are the screen used in England\'s national mental health survey (the Adult Psychiatric Morbidity Survey 2023/4, run for NHS England). In that survey, 13.9% of adults - about 1 in 7 - scored 4 or more, the level the survey says means a fuller assessment is warranted. 1.9% - about 1 in 50 - scored all 6, and the survey notes the higher the score, the more likely ADHD is present. A screen is still not a diagnosis: the survey found that among people who screened positive, only about 1 in 10 had ever been diagnosed by a professional.',
+  extra: 'Screening positive was five times more common among people with a common mental health condition such as anxiety or depression (38.5%) than among those without (7.2%), which is one reason a professional checks what else might explain the symptoms.',
+  source: ['NHS England Digital: Adult Psychiatric Morbidity Survey 2023/4, chapter on ADHD', 'https://digital.nhs.uk/data-and-information/publications/statistical/adult-psychiatric-morbidity-survey/survey-of-mental-health-and-wellbeing-england-2023-24/attention-deficit-hyperactivity-disorder'],
+};
+
 export const EARLY = ['Yes, quite a lot', 'Some of them', 'Not sure', 'No'];
 export const IMPACT = ['Work or study', 'Home and daily life', 'Relationships and friendships', 'Money or admin'];
 export const OTHER = ['Poor sleep', 'Feeling anxious', 'Low mood or feeling down', 'A lot of stress right now'];
