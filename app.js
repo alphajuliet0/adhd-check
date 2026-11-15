@@ -1,0 +1,256 @@
+import { SCALE, ITEMS, score, SOURCE_TEXT, NHS_TEXT, LINKS, CREDIT } from './asrs.js';
+import { reportNode, reportHtml } from './report.js';
+import { WAIT } from './content.js';
+import { AGREE, AREAS, STATEMENTS, EARLY, IMPACT, OTHER, areaCounts, NHS } from './content.js';
+
+const PER_PAGE = 5;
+const PAGES = Math.ceil(STATEMENTS.length / PER_PAGE);
+const blank = () => ({ path: null, stage: 'home', i: 0, a: [], d: [], early: null, impact: [], other: [], c: [] });
+
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'class') n.className = v; else if (k === 'on') n.addEventListener('click', v); else if (v !== false && v != null) n.setAttribute(k, v === true ? '' : v);
+  }
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) n.append(k.nodeType ? k : document.createTextNode(k));
+  return n;
+}
+
+// store: { load(): object|null, save(obj), clear(), persistent: boolean }
+export function mount(root, store, opts = {}) {
+  let st = blank();
+  try { const v = store.load(); if (v && typeof v === 'object') st = Object.assign(blank(), v); } catch (e) {}
+  const save = () => { try { store.save(st); } catch (e) {} };
+  const go = patch => { Object.assign(st, patch); save(); render(); (root.scrollIntoView ? window.scrollTo(0, 0) : 0); };
+  const btn = (label, fn, cls = '', extra) => el('button', Object.assign({ class: 'btn ' + cls, type: 'button', on: fn }, extra || {}), label);
+  const reset = () => { try { store.clear(); } catch (e) {} st = blank(); render(); window.scrollTo(0, 0); };
+  const link = (t, h) => el('a', { href: h, target: '_blank', rel: 'noopener noreferrer' }, t);
+
+  const fill = (n, total) => { const s = el('span', {}); s.style.width = (n / total) * 100 + '%'; return s; };
+  const top = (label, n, total) => el('div', { class: 'top' },
+    el('div', { class: 'brand' }, 'ADHD ', el('i', {}, 'check-in')),
+    label ? el('div', { class: 'meta' }, el('span', {}, label), el('span', {}, n != null ? `${Math.round((n / total) * 100)}% complete` : '')) : null,
+    n != null ? el('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Math.round((n / total) * 100) }, fill(n, total)) : null);
+
+  function footer() {
+    return el('footer', {},
+      el('p', { class: 'small' }, opts.footerPrivacy),
+      (st.a.length || st.d.length || st.path) ? btn('Clear my answers and start over', reset, 'ghost') : null);
+  }
+
+  const tap = (opts_, value, pick, labelClass = '') => el('div', { class: 'opts ' + labelClass }, opts_.map((o, i) => el('button', { class: 'btn', type: 'button', 'aria-pressed': String(value === i), on: () => pick(i) }, o)));
+
+  // One question per screen. Tap to answer, moves on by itself. Back keeps answers.
+  function single({ label, items, key, optsList, instruction, onDone, onBack, qprefix }) {
+    const i = st.i, n = items.length;
+    return [top(label, i, n),
+      el('p', { class: 'instr' }, instruction),
+      el('h2', { class: 'q' }, el('span', { class: 'qn' }, `${i + 1} of ${n}`), items[i].q || items[i]),
+      tap(optsList, st[key][i], v => { const a = st[key].slice(); a[i] = v; i === n - 1 ? onDone(a) : go({ [key]: a, i: i + 1 }); }),
+      btn('Back', () => (i === 0 ? onBack() : go({ i: i - 1 })), 'ghost'),
+      st[key][i] != null && i < n - 1 ? btn('Next', () => go({ i: i + 1 }), 'ghost right') : null];
+  }
+
+  function home() {
+    return [top(), el('h1', {}, 'A free, plain-language adult ADHD check-in'),
+      el('p', { class: 'lede' }, 'Questions you can answer by feel, a result that shows where your answers land, and what the NHS says about adult traits and what helps. No account, nothing to pay.'),
+      el('div', { class: 'warn' }, el('b', {}, 'A screen, not a diagnosis'), 'Only a specialist assessment can diagnose ADHD. Nothing here gives a percentage or a severity rating of your ADHD.'),
+      el('h2', {}, 'Who is answering?'),
+      el('div', { class: 'choice' },
+        btn(el('span', {}, el('b', {}, 'I am an adult answering about myself'), el('small', {}, '18 or over. About 5 minutes.')), () => go({ path: 'adult', stage: 'a-intro', i: 0 }), 'card'),
+        el('div', { class: 'card soon' }, el('b', {}, 'Parent or carer answering about a child'), el('small', {}, 'Not ready yet. The child version is being checked and is switched off for now. In the meantime the NHS has a page for parents and carers, with the signs to look for and how to ask for help: '), link('NHS: ADHD in children and young people', NHS.childUrl), '.')),
+            el('h2', {}, 'Where this comes from'),
+      el('p', {}, 'The adult screener is the official ASRS-v1.1 six-question screener, created by Lenard Adler (NYU) and Ronald Kessler (Harvard) with the World Health Organization. Advice on traits, where to go next and what helps comes from the NHS page on ADHD in adults.'),
+      el('p', {}, 'The six screener questions are shown exactly as published. The extra plain-language questions are our own, are labelled as such, and are never turned into a score.'),
+      btn('What this is based on', () => go({ stage: 'about' })),
+      footer()];
+  }
+
+  function aIntro() {
+    return [top(), el('h1', {}, 'Part 1: the ASRS screener'),
+      el('p', { class: 'lede' }, 'Six questions, one at a time. Tap an answer and it moves on.'),
+      el('p', {}, 'Think about how you have felt and acted over the past 6 months. Go with your first answer.'),
+      el('div', { class: 'note' }, el('b', {}, 'About this part'), 'These six questions are the official ASRS-v1.1 screener, word for word, with its five answer options. They are the part with published scoring and research behind it. In Part 2 you can optionally add your own day-to-day picture.'),
+      btn('Start', () => go({ stage: 'a', i: 0, a: [] }), 'primary'), btn('Back', () => go({ stage: 'home', path: null }), 'ghost'), footer()];
+  }
+
+  function bridge() {
+    return [top('Part 1 done', 100, 100), el('h1', {}, 'Thanks. Part 1 is done.'),
+      el('p', { class: 'lede' }, 'Your screener result is ready. You can see it now, or add Part 2 first.'),
+      el('div', { class: 'note' }, el('b', {}, 'Part 2: your day-to-day (optional, about 4 minutes)'), '30 short statements across six areas, answered Strongly disagree to Strongly agree, plus three quick questions about when it started and what else is going on. These are our own plain-language statements. They are not part of the ASRS, are not validated, and do not produce a score. They give you a picture to talk through with a GP.'),
+      btn('Add Part 2', () => go({ stage: 'd', i: 0 }), 'primary'), btn('Just show my result', () => go({ stage: 'result' })), footer()];
+  }
+
+  function statementsPage() {
+    const p = st.i, from = p * PER_PAGE, items = STATEMENTS.slice(from, from + PER_PAGE);
+    const done = items.every((_, k) => st.d[from + k] != null);
+    return [top('Part 2 · Your day-to-day', p, PAGES),
+      el('h2', { class: 'q' }, 'How true is each statement for you?'),
+      el('p', { class: 'instr' }, 'Answer by feel. There are no right answers.'),
+      items.map((s, k) => el('div', { class: 'card' }, el('p', { class: 'stmt' }, s.q),
+        el('div', { class: 'likert', role: 'group', 'aria-label': s.q }, AGREE.map((lab, v) => el('button', { type: 'button', class: 'dot d' + v, 'aria-pressed': String(st.d[from + k] === v), 'aria-label': lab, on: () => { const d = st.d.slice(); d[from + k] = v; st.d = d; save(); render(); } }, el('span', {}, lab)))))),
+      el('div', { class: 'nav' }, btn('Back', () => (p === 0 ? go({ stage: 'bridge' }) : go({ i: p - 1 })), 'ghost'),
+        btn(p === PAGES - 1 ? 'Last questions' : 'Next', () => (p === PAGES - 1 ? go({ stage: 'ctx' }) : go({ i: p + 1 })), 'primary', done ? {} : { disabled: true })),
+      done ? null : el('p', { class: 'small center' }, 'Answer all five to continue.'), footer()];
+  }
+
+  const toggle = (list, v, key) => { const a = st[key].includes(v) ? st[key].filter(x => x !== v) : st[key].concat(v); go0({ [key]: a }); };
+  const go0 = patch => { Object.assign(st, patch); save(); render(); };
+
+  function ctxPage() {
+    const chips = (list, key) => el('div', { class: 'opts' }, list.map(o => el('button', { class: 'btn', type: 'button', 'aria-pressed': String(st[key].includes(o)), on: () => toggle(null, o, key) }, o)));
+    return [top('Part 2 · Three quick questions', 99, 100),
+      el('h2', { class: 'q' }, 'Looking back, did you notice some of these before about age 12?'),
+      el('p', { class: 'small' }, 'The NHS says ADHD symptoms usually start before the age of 12.'),
+      tap(EARLY, st.early, v => go0({ early: v })),
+      el('h2', { class: 'q' }, 'Where do these get in the way? (pick any)'), chips(IMPACT, 'impact'),
+      el('h2', { class: 'q' }, 'Is any of this going on for you at the moment? (pick any)'),
+      el('p', { class: 'small' }, 'These can look like ADHD or sit alongside it.'), chips(OTHER, 'other'),
+      el('div', { class: 'nav' }, btn('Back', () => go({ stage: 'd', i: PAGES - 1 }), 'ghost'),
+        btn('See my results', () => go({ stage: 'result' }), 'primary', st.early == null ? { disabled: true } : {})),
+      st.early == null ? el('p', { class: 'small center' }, 'Answer the first question to continue.') : null, footer()];
+  }
+
+  const row = (name, detail, val, yes) => el('div', { class: 'row' + (/^\d+ of \d+$/.test(val) ? '' : ' stack') }, el('div', {}, el('b', {}, name), el('small', {}, detail)), el('div', { class: 'val' + (yes ? ' yes' : '') + (/^\d+ of \d+$/.test(val) ? ' num' : '') }, val));
+  function grid(it, i, v) {
+    return el('div', { class: 'qrow' }, el('p', {}, `${i + 1}. ${it.q}`),
+      el('div', { class: 'cells' }, SCALE.map((name, k) => el('span', { class: 'cell ' + (k >= it.at ? 'dark' : 'light'), role: 'img', 'aria-label': `${name}${k >= it.at ? ', counts' : ''}${k === v ? ', your answer' : ''}` }, k === v ? '\u2713' : ''))),
+      el('div', { class: 'cells labs' }, SCALE.map(n => el('span', { class: 'lab' }, n))));
+  }
+  const list = a => el('ul', {}, a.map(t => el('li', {}, t)));
+
+  function summaryText() {
+    const r = score(st.a), lines = ['ADHD check-in summary (self-reported, not a diagnosis)', ''];
+    lines.push(`ASRS-v1.1 screener: ${r.original} of 6 checkmarks in the darkly shaded area (screener rule); ${r.points} of 24 on the 2024 scoring update.`);
+    if (st.d.length === STATEMENTS.length) {
+      lines.push('', 'My own day-to-day statements (not a validated scale), statements agreed with by area:');
+      areaCounts(st.d).forEach(a => lines.push(`- ${a.name}: ${a.agreed} of ${a.n}`));
+      lines.push('', 'Before about age 12: ' + EARLY[st.early]);
+      if (st.impact.length) lines.push('Gets in the way of: ' + st.impact.join(', '));
+      if (st.other.length) lines.push('Also going on: ' + st.other.join(', '));
+    }
+    return lines.join('\n');
+  }
+  function copyBox() {
+    const t = summaryText(); const ta = el('textarea', { class: 'sum', readonly: true, rows: 9, 'aria-label': 'Summary to share with a GP' }); ta.value = t;
+    return [el('p', { class: 'small' }, 'You can copy this summary to take to a GP. It stays on your device unless you share it.'), ta,
+      btn('Copy summary', e => { ta.select(); try { navigator.clipboard.writeText(t); e.target.textContent = 'Copied'; } catch (x) { document.execCommand && document.execCommand('copy'); } })];
+  }
+
+  const todayStr = () => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  function printReport() {
+    const holder = el('div', { id: 'print-root' }); holder.append(reportNode(st, todayStr()));
+    document.body.append(holder);
+    const done = () => { holder.remove(); window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    try { window.print(); } catch (e) { done(); }
+    if (!window.matchMedia || !window.matchMedia('print').matches) setTimeout(() => holder.isConnected && done(), 60000);
+  }
+  function downloadReport() {
+    const d = new Date(), pad = n => String(n).padStart(2, '0');
+    const name = `adhd-checkin-report-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.html`;
+    const url = URL.createObjectURL(new Blob([reportHtml(st, todayStr())], { type: 'text/html' }));
+    const a = el('a', { href: url, download: name }); document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+  function exportBox() {
+    if (opts && opts.exports === false) return [el('h2', {}, 'Save your report'),
+      el('p', {}, 'In the standalone version, a button here saves your report as a PDF (through your browser\'s print window) or as a downloadable web page, made on your device. This review preview runs inside a frame that blocks downloads and printing, so those buttons are switched off here. This is how the report reads:'),
+      el('details', { class: 'how' }, el('summary', {}, 'See the report'), (() => { const d = el('div', { class: 'report-inline' }); d.append(reportNode(st, todayStr())); return d; })())];
+    return [el('h2', {}, 'Save your report'),
+      el('p', {}, 'A report for you and, if you choose, a professional: your answers, the screener result under each published method, your day-to-day responses kept separate, the NHS guidance and the sources.'),
+      btn('Print or save as PDF', printReport, 'primary'), btn('Download as a web page (HTML)', downloadReport),
+      el('p', { class: 'small' }, 'The PDF comes from your browser\'s print window: choose "Save as PDF" as the destination. Both are made on your device and nothing is uploaded. The report holds health information, so store it safely and share it only with people you choose.')];
+  }
+
+  function about() {
+    return [top(), el('h1', {}, 'What this is based on'),
+      el('p', { class: 'lede' }, 'The screening questions and scoring come from published instruments. Everything else is labelled as ours.'),
+      el('h2', {}, 'The screener'),
+      el('p', {}, 'The six screener questions, the five answer options, the two-level shading and the counting rule come from the ASRS-v1.1 6-question screener, created by Lenard Adler (NYU) and Ronald Kessler (Harvard) with the World Health Organization. NYU\'s licensing page lists it as free to use with attribution, allowing electronic versions with no other modifications. The primary paper is Kessler RC et al., Psychological Medicine 2005; 35(2): 245-256.'),
+      el('p', {}, 'Harvard published an updated way of scoring the same six answers in 2024 (0 to 24 points, cutpoint 14, four bands). It is shown as a second, separate method. The two are never merged into one verdict.'),
+      el('h2', {}, 'What is ours'),
+      el('p', {}, 'The 30 day-to-day statements, the six area groupings, the three context questions and the report layout were written for this tool from the symptom areas the NHS describes. They are not validated, have no score or cut-off, and are not part of the ASRS.'),
+      el('h2', {}, 'The guidance'),
+      el('p', {}, 'Traits, how to get help, waiting times and what can help are closely paraphrased from the NHS page on ADHD in adults.'),
+      el('h2', {}, 'Not used'),
+      el('p', {}, 'The longer 18-question ASRS checklist and the DSM-5 version have their own licensing terms with NYU, so they are not included. A child version is switched off until a questionnaire with clear reuse terms has been checked.'),
+      el('h2', {}, 'Sources'), el('ul', {}, LINKS.map(([t, h]) => el('li', {}, link(t, h)))),
+      el('p', { class: 'small' }, CREDIT),
+      btn('Back', () => go({ stage: st.path === 'adult' ? 'a-intro' : 'home' }), 'ghost')];
+  }
+
+  function adultResult() {
+    const r = score(st.a), full = st.d.length === STATEMENTS.length && st.early != null;
+    const out = [top(), el('h1', {}, 'Your results')];
+    // 1. The screening result, from the screener's own counting rule, in the source's own words.
+    out.push(el('div', { class: 'result ' + (r.posOriginal ? 'flag' : '') },
+      el('small', {}, 'ASRS-v1.1 screener, using its own counting rule (NYU)'),
+      el('div', { class: 'big' }, `${r.original} of 6`),
+      el('p', {}, r.posOriginal ? SOURCE_TEXT.originalPositive : SOURCE_TEXT.originalNegative),
+      r.posOriginal ? null : el('p', {}, 'A count below four does not rule out ADHD. The NHS says that if symptoms are affecting your studies, work or relationships, it is worth making a GP appointment.'),
+      el('p', { class: 'small' }, 'This is a screen, not a diagnosis. NYU says the screener is not a standalone diagnostic tool and that diagnosis should never be made solely on its score.')));
+    out.push(el('p', { class: 'small' }, `Harvard's 2024 update scores the same six answers a different way and gives ${r.points} of 24. The two methods can disagree, so they are kept apart. See "How the screener is scored" below.`));
+    out.push(...exportBox());
+    // 2. What the user told us.
+    if (full) {
+      const counts = areaCounts(st.d);
+      out.push(el('h2', {}, 'What you told us'),
+        el('p', { class: 'small' }, 'Our own plain-language statements, not part of the ASRS. Not validated, no cut-off. The bars only show how many statements in each area you agreed with. They cannot tell you whether you have ADHD, or how much.'),
+        counts.map((a, ai) => {
+          const agreed = STATEMENTS.map((x, i) => ({ x, i })).filter(o => o.x.area === ai && st.d[o.i] >= 3);
+          return el('div', { class: 'area' }, el('div', { class: 'areahead' }, el('b', {}, a.name), el('span', {}, `${a.agreed} of ${a.n} agreed`)),
+            el('div', { class: 'meter', 'aria-hidden': 'true' }, Array.from({ length: a.n }, (_, k) => el('i', { class: k < a.agreed ? 'on' : '' }))),
+            agreed.length ? el('ul', { class: 'agreed' }, agreed.map(o => el('li', {}, o.x.q, st.d[o.i] === 4 ? el('em', {}, ' (strongly)') : null))) : null,
+            a.note ? el('small', {}, a.note) : null);
+        }),
+        row('Noticed before about age 12', 'The NHS says symptoms usually start before 12. A clinician will ask about this.', EARLY[st.early]),
+        st.impact.length ? row('Gets in the way of', 'The NHS suggests seeing a GP if symptoms affect studies, work or relationships.', st.impact.join(', ')) : null,
+        st.other.length ? row('Also going on', 'The NHS says a GP may consider other things that could cause symptoms, such as anxiety. Anxiety and depression can make ADHD symptoms worse, and sleep matters.', st.other.join(', ')) : null);
+    } else {
+      out.push(btn('Add Part 2: my day-to-day (optional)', () => go({ stage: 'd', i: 0 })));
+    }
+    // 3. What to do next.
+    out.push(el('h2', {}, 'What to do next'), el('p', {}, NHS.route.adult), el('p', {}, NHS.route.wait), el('p', {}, link('NHS: ADHD in adults', NHS.adultsUrl)));
+    if (full) out.push(el('h3', {}, 'Take this to a GP'), copyBox());
+    // 4. Traits and what helps.
+    out.push(el('h2', {}, WAIT.title), el('p', {}, WAIT.intro));
+    WAIT.groups.forEach(g => out.push(el('h3', {}, g.label), list(g.items)));
+    out.push(el('p', { class: 'small' }, WAIT.caveat), el('details', { class: 'how' }, el('summary', {}, 'Where this comes from'), el('ul', {}, WAIT.sources.map(([t, h]) => el('li', {}, link(t, h))))));
+    out.push(el('h2', {}, 'The traits the NHS describes in adults'),
+      el('p', {}, el('b', {}, 'Inattentive: ')), list(NHS.traits.inattentive), el('p', {}, el('b', {}, 'Hyperactive and impulsive: ')), list(NHS.traits.hyper),
+      el('h2', {}, 'What can help, from the NHS'), list(NHS.adultHelp),
+      el('h2', {}, 'Adults and children can look different'), list(NHS.differences));
+    // 5. Explanation of scoring, sources.
+    out.push(el('h2', {}, 'How the screener is scored'),
+      el('details', {}, el('summary', {}, 'Both scoring methods, and your answers on the form'),
+        el('p', { class: 'small' }, 'The same six answers can be scored two published ways. They are shown separately and not combined.'),
+        row('Screener rule: checkmarks in the darkly shaded boxes', r.posOriginal ? SOURCE_TEXT.originalPositive : SOURCE_TEXT.originalNegative, `${r.original} of 6`, r.posOriginal),
+        row('2024 scoring update: total out of 24', `Never 0, Rarely 1, Sometimes 2, Often 3, Very often 4. ${r.posUpdate ? SOURCE_TEXT.updatePositive : SOURCE_TEXT.updateNegative} Your range: ${r.band}.`, `${r.points} of 24`, r.posUpdate),
+        el('p', { class: 'small' }, 'Harvard says the original 4-of-6 rule gave high and inconsistent prevalence estimates, and that the 0 to 24 method is more robust, especially for research on prevalence. Bands: 0-9 low negative, 10-13 high negative, 14-17 low positive, 18-24 high positive.'),
+        el('p', { class: 'small' }, 'Your answers on the form. Dark boxes count under the screener rule. Light boxes do not. A tick marks your answer.'),
+        ITEMS.map((it, i) => grid(it, i, st.a[i]))),
+      el('h2', {}, 'Sources'), el('ul', {}, LINKS.map(([t, h]) => el('li', {}, link(t, h)))),
+      el('p', { class: 'small' }, CREDIT),
+      el('p', { class: 'small' }, 'Part 2 statements, the summary and the way answers are grouped were written for this page and are not part of the ASRS or any NHS material. The NHS passages are closely paraphrased from nhs.uk (adults page last reviewed 19 March 2025 as seen when this was built).'),
+      btn('Start over', reset), footer());
+    return out;
+  }
+
+  function render() {
+    root.replaceChildren();
+    let body;
+    const S = st.stage;
+    if (S === 'home') body = home();
+    else if (S === 'a-intro') body = aIntro();
+    else if (S === 'a') body = single({ label: 'Part 1 · ASRS screener', items: ITEMS, key: 'a', optsList: SCALE, instruction: 'Over the past 6 months, how have you felt and conducted yourself?', onDone: a => go({ a, stage: 'bridge', i: 0 }), onBack: () => go({ stage: 'a-intro' }) });
+    else if (S === 'bridge') body = bridge();
+    else if (S === 'd') body = statementsPage();
+    else if (S === 'ctx') body = ctxPage();
+    else if (S === 'result') body = adultResult();
+    else if (S === 'about') body = about();
+    else body = home();
+    root.append(...body.flat(Infinity).filter(Boolean));
+  }
+  render();
+                }
