@@ -253,4 +253,4 @@ export function mount(root, store, opts = {}) {
     root.append(...body.flat(Infinity).filter(Boolean));
   }
   render();
-                }
+}
