@@ -239,6 +239,9 @@ export function mount(root, store, opts = {}) {
 
   const todayStr = () => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   function printReport() {
+    // Keep the print copy in the page after printing. Some mobile browsers (notably iOS Safari)
+    // fire afterprint straight away or build the PDF later, so removing it made the PDF blank.
+    const old = document.getElementById('print-root'); if (old) old.remove();
     const holder = el('div', { id: 'print-root' });
     if (st.path === 'child') {
       const doc = childPrepHtml(st.cprep, st.cnote, st.cage != null ? C_AGE_BANDS[st.cage] : 'not given', todayStr(), st.cfreq.length ? childObservationLines(st) : []);
@@ -246,10 +249,7 @@ export function mount(root, store, opts = {}) {
       if (parsed.body) while (parsed.body.firstChild) holder.append(parsed.body.firstChild);
     } else holder.append(reportNode(st, todayStr()));
     document.body.append(holder);
-    const done = () => { holder.remove(); window.removeEventListener('afterprint', done); };
-    window.addEventListener('afterprint', done);
-    try { window.print(); } catch (e) { done(); }
-    if (!window.matchMedia || !window.matchMedia('print').matches) setTimeout(() => holder.isConnected && done(), 60000);
+    setTimeout(() => { try { window.print(); } catch (e) { /* download remains available */ } }, 150);
   }
   function downloadReport() {
     const d = new Date(), pad = n => String(n).padStart(2, '0');
@@ -270,7 +270,7 @@ export function mount(root, store, opts = {}) {
     return [el('h2', {}, 'Save your report'),
       el('p', {}, 'A report for you and, if you choose, a professional: your answers, the screener result under each published method, your day-to-day responses kept separate, the NHS guidance and the sources.'),
       btn('Print or save as PDF', printReport, 'primary'), btn('Download as a web page (HTML)', downloadReport),
-      el('p', { class: 'small' }, 'The PDF comes from your browser\'s print window: choose "Save as PDF" as the destination. Both are made on your device and nothing is uploaded. The report holds health information, so store it safely and share it only with people you choose.')];
+      el('p', { class: 'small' }, 'The PDF comes from your browser\'s print window: choose "Save as PDF" as the destination. If the PDF comes out blank on your phone, use the web page download instead. Both are made on your device and nothing is uploaded. The report holds health information, so store it safely and share it only with people you choose.')];
   }
 
   function about() {
