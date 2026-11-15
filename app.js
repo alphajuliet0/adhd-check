@@ -1,11 +1,12 @@
 import { SCALE, ITEMS, score, SOURCE_TEXT, NHS_TEXT, LINKS, CREDIT } from './asrs.js';
 import { reportNode, reportHtml } from './report.js';
-import { WAIT } from './content.js';
+import { WAIT, APMS } from './content.js';
 import { AGREE, AREAS, STATEMENTS, EARLY, IMPACT, OTHER, areaCounts, NHS } from './content.js';
+import { C_AGE_BANDS, CHILD, childPrepHtml, CHILD_RESEARCH, CHILD_FREQUENCY, CHILD_SUPPORT, CHILD_SETTINGS, CHILD_HISTORY, childItems, childObservationLines } from './child.js';
 
 const PER_PAGE = 5;
 const PAGES = Math.ceil(STATEMENTS.length / PER_PAGE);
-const blank = () => ({ path: null, stage: 'home', i: 0, a: [], d: [], early: null, impact: [], other: [], c: [] });
+const blank = () => ({ path: null, stage: 'home', i: 0, a: [], d: [], early: null, impact: [], other: [], c: [], cage: null, cprep: [], cnote: '', ci: 0, cfreq: [], csupport: [], csettings: [], chistory: null, cwho: '', cvoice: '', ccontext: '' });
 
 function el(tag, attrs, ...kids) {
   const n = document.createElement(tag);
@@ -21,7 +22,7 @@ export function mount(root, store, opts = {}) {
   let st = blank();
   try { const v = store.load(); if (v && typeof v === 'object') st = Object.assign(blank(), v); } catch (e) {}
   const save = () => { try { store.save(st); } catch (e) {} };
-  const go = patch => { Object.assign(st, patch); save(); render(); (root.scrollIntoView ? window.scrollTo(0, 0) : 0); };
+  const go = patch => { Object.assign(st, patch); save(); render(); const h=root.querySelector('h1,h2'); if(h){h.setAttribute('tabindex','-1'); h.focus({preventScroll:true}); h.scrollIntoView({block:'start'});} else window.scrollTo(0,0); };
   const btn = (label, fn, cls = '', extra) => el('button', Object.assign({ class: 'btn ' + cls, type: 'button', on: fn }, extra || {}), label);
   const reset = () => { try { store.clear(); } catch (e) {} st = blank(); render(); window.scrollTo(0, 0); };
   const link = (t, h) => el('a', { href: h, target: '_blank', rel: 'noopener noreferrer' }, t);
@@ -33,8 +34,11 @@ export function mount(root, store, opts = {}) {
     n != null ? el('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Math.round((n / total) * 100) }, fill(n, total)) : null);
 
   function footer() {
+    const privacy = st.path === 'child'
+      ? opts.childFooterPrivacy || 'Nothing on this page is scored or sent anywhere, and it loads nothing from other sites. Your ticks and notes are kept only in this tab\'s memory and are cleared when you close or reload it; use the print or download options if you want to keep the preparation sheet. Like any website, the host keeps standard visit logs (such as IP address and time), which are separate from anything you type here.'
+      : opts.footerPrivacy;
     return el('footer', {},
-      el('p', { class: 'small' }, opts.footerPrivacy),
+      el('p', { class: 'small' }, privacy),
       (st.a.length || st.d.length || st.path) ? btn('Clear my answers and start over', reset, 'ghost') : null);
   }
 
@@ -52,13 +56,13 @@ export function mount(root, store, opts = {}) {
   }
 
   function home() {
-    return [top(), el('h1', {}, 'A free, plain-language adult ADHD check-in'),
-      el('p', { class: 'lede' }, 'Questions you can answer by feel, a result that shows where your answers land, and what the NHS says about adult traits and what helps. No account, nothing to pay.'),
-      el('div', { class: 'warn' }, el('b', {}, 'A screen, not a diagnosis'), 'Only a specialist assessment can diagnose ADHD. Nothing here gives a percentage or a severity rating of your ADHD.'),
+    return [top(), el('h1', {}, 'A plain-language ADHD check-in'),
+      el('p', { class: 'lede' }, 'An adult screener and optional reflection questions, or an unscored everyday-life check-in about a child. With UK guidance and a sheet to prepare for the GP. No account, nothing to pay.'),
+      el('div', { class: 'warn' }, el('b', {}, 'A check-in, not a diagnosis'), 'Only a specialist assessment can diagnose ADHD. Nothing here gives a percentage or a severity rating of your ADHD.'),
       el('h2', {}, 'Who is answering?'),
       el('div', { class: 'choice' },
         btn(el('span', {}, el('b', {}, 'I am an adult answering about myself'), el('small', {}, '18 or over. About 5 minutes.')), () => go({ path: 'adult', stage: 'a-intro', i: 0 }), 'card'),
-        el('div', { class: 'card soon' }, el('b', {}, 'Parent or carer answering about a child'), el('small', {}, 'Not ready yet. The child version is being checked and is switched off for now. In the meantime the NHS has a page for parents and carers, with the signs to look for and how to ask for help: '), link('NHS: ADHD in children and young people', NHS.childUrl), '.')),
+        btn(el('span', {}, el('b', {}, 'Parent, carer or supporting adult about a child'), el('small', {}, 'Under 18. Original everyday-life questions, UK guidance and a preparation sheet.')), () => go({ path: 'child', stage: 'c-age' }), 'card')),
             el('h2', {}, 'Where this comes from'),
       el('p', {}, 'The adult screener is the official ASRS-v1.1 six-question screener, created by Lenard Adler (NYU) and Ronald Kessler (Harvard) with the World Health Organization. Advice on traits, where to go next and what helps comes from the NHS page on ADHD in adults.'),
       el('p', {}, 'The six screener questions are shown exactly as published. The extra plain-language questions are our own, are labelled as such, and are never turned into a score.'),
@@ -76,7 +80,7 @@ export function mount(root, store, opts = {}) {
 
   function bridge() {
     return [top('Part 1 done', 100, 100), el('h1', {}, 'Thanks. Part 1 is done.'),
-      el('p', { class: 'lede' }, 'Your screener result is ready. You can see it now, or add Part 2 first.'),
+      el('p', { class: 'lede' }, 'Your screener result is ready. You can see it now, or add more first.'),
       el('div', { class: 'note' }, el('b', {}, 'Part 2: your day-to-day (optional, about 4 minutes)'), '30 short statements across six areas, answered Strongly disagree to Strongly agree, plus three quick questions about when it started and what else is going on. These are our own plain-language statements. They are not part of the ASRS, are not validated, and do not produce a score. They give you a picture to talk through with a GP.'),
       btn('Add Part 2', () => go({ stage: 'd', i: 0 }), 'primary'), btn('Just show my result', () => go({ stage: 'result' })), footer()];
   }
@@ -137,9 +141,110 @@ export function mount(root, store, opts = {}) {
       btn('Copy summary', e => { ta.select(); try { navigator.clipboard.writeText(t); e.target.textContent = 'Copied'; } catch (x) { document.execCommand && document.execCommand('copy'); } })];
   }
 
+  // ---- Child route (guidance + preparation; no third-party questionnaire items embedded) ----
+  function cAge() {
+    return [top(), el('h1', {}, 'About your child'),
+      el('p', { class: 'lede' }, CHILD.intro),
+      el('div', { class: 'warn' }, el('b', {}, 'Original everyday-life check-in'), 'Our own questions help describe attention-related routines, support needs and impact. They are not a validated ADHD test, have no diagnostic score, and are not copied from the SDQ or another scale. A recent fortnight is used only to help recall examples, not to test diagnostic duration.'),
+      el('h2', {}, "Child's age"),
+      tap(C_AGE_BANDS, st.cage, v => go({ cage: v, stage: 'c-info', ci: 0, cfreq: [], csupport: [] })),
+      btn('Back', () => go({ stage: 'home', path: null }), 'ghost'), footer()];
+  }
+
+  function cInfo() {
+    const band = st.cage === 0 ? 'u6' : st.cage === 1 ? 's612' : 's1317';
+    const b = CHILD.bands[band];
+    return [top(), el('h1', {}, `Age ${C_AGE_BANDS[st.cage].toLowerCase()}: the UK pathway`),
+      el('p', {class:'lede'}, 'You can complete our original everyday-life questions, or go straight to guidance and GP preparation.'), btn('Start the everyday-life check-in', () => go({stage:'c-observe',ci:0}), 'primary'), el('details', {}, el('summary', {}, 'UK guidance and optional official questionnaires'), b.body.map(p => el('p', {}, p)),
+      el('h2', {}, 'Official questionnaires (on the publishers\' own sites)'),
+      el('ul', {}, CHILD.official.map(([t, h]) => el('li', {}, link(t, h)))),
+      el('details', { class: 'how' }, el('summary', {}, 'Why the questionnaires are linked, not built in'), el('p', { class: 'small' }, CHILD.rightsNote))),
+      el('div', { class: 'nav' }, btn('Back', () => go({ stage: 'c-age' }), 'ghost'),
+        btn('Prepare for the GP', () => go({ stage: 'c-prep' }), 'primary')),
+      footer()];
+  }
+
+  function cObserve() {
+    const items=childItems(st.cage), q=items[st.ci];
+    const ready=st.cfreq[st.ci]!=null && st.csupport[st.ci]!=null;
+    return [top('Child everyday-life check-in',st.ci,items.length), el('h1',{},q[0]),
+      el('p',{class:'small'},'Our own questions, unvalidated and unscored. Think about the last two weeks. Only describe what you observed; not sure is a useful answer.'),
+      el('h2',{},q[1]), el('p',{},q[2]),
+      tap(CHILD_FREQUENCY,st.cfreq[st.ci],v=>{const a=st.cfreq.slice();a[st.ci]=v;go0({cfreq:a});}),
+      el('h2',{},'When this came up, how much extra support was needed?'),
+      el('p',{class:'small'},'Think about help, adjustments or effort needed to take part, not how much ADHD someone has.'),
+      tap(CHILD_SUPPORT,st.csupport[st.ci],v=>{const a=st.csupport.slice();a[st.ci]=v;go0({csupport:a});}),
+      el('div',{class:'nav'},btn('Back',()=>st.ci===0?go({stage:'c-info'}):go({ci:st.ci-1}),'ghost'),
+       btn(st.ci===items.length-1?'Add the context':'Next',()=>st.ci===items.length-1?go({stage:'c-context'}):go({ci:st.ci+1}),'primary',ready?{}:{disabled:true})),footer()];
+  }
+  function cContext() {
+    const field=(label,key)=>{const t=el('textarea',{class:'sum',rows:3,'aria-label':label,maxlength:3000});t.value=st[key];t.addEventListener('input',()=>{st[key]=t.value;save();});return [el('h2',{},label),t];};
+    return [top(),el('h1',{},'Put the observations in context'),
+      el('p',{class:'lede'},'Optional. Different views can all be useful. Do not guess what happens somewhere you have not observed.'),
+      el('h2',{},'Your role'),el('div',{class:'opts'},['Parent / carer','Teacher / school staff','Other supporting adult'].map(x=>btn(x,()=>go0({cwho:x}),'',{'aria-pressed':String(st.cwho===x)}))),
+      el('h2',{},'Which settings have you observed?'),el('div',{class:'opts'},CHILD_SETTINGS.map(x=>btn(x,()=>go0({csettings:st.csettings.includes(x)?st.csettings.filter(y=>y!==x):st.csettings.concat(x)}),'',{'aria-pressed':String(st.csettings.includes(x))}))),
+      el('h2',{},'How long has this pattern been noticeable?'),tap(CHILD_HISTORY,st.chistory,v=>go0({chistory:v})),
+      ...field('What does the child or young person want people to understand? (their words, if they want to add them)','cvoice'),
+      ...field('Examples, impact and what helps. Any recent changes in sleep, health, mood, learning or circumstances?','ccontext'),
+      el('p',{class:'small'},'These other factors may matter, with or without ADHD. This page cannot work out the cause. Avoid names or other identifying details.'),
+      btn('See the everyday-life summary',()=>go({stage:'c-profile'}),'primary'),btn('Back',()=>go({stage:'c-observe',ci:childItems(st.cage).length-1}),'ghost'),footer()];
+  }
+  function cProfile() {
+    return [top(),el('h1',{},'Everyday-life summary'),
+      el('div',{class:'warn'},el('b',{},'Your observations, not an ADHD result'),'There is no total, cut-off, probability or severity rating. These questions have not been validated. They do not confirm or rule out ADHD, even when few difficulties were noticed.'),
+      el('p',{},'Age band: '+C_AGE_BANDS[st.cage]+'. Recent window: two weeks, for recalling examples only.'),
+      list(childObservationLines(st)),
+      el('h2',{},'Use this to start a conversation'),
+      el('p',{},'Ask the child or young person what feels difficult and what already helps. If possible, bring a separate view from school, home or another setting. Keep differences visible rather than averaging them into one judgement.'),
+      el('p',{},'If difficulties are affecting learning, relationships or family life, discuss them with the GP, health visitor or school. Severe impact should lead to direct specialist referral under NICE NG87 1.2.8, not a wait for a check-in score. This page cannot assess urgency or replace professional help.'),
+      st.cage===0?el('p',{},'For under-6s, treat these as observations for a health visitor, GP or nursery conversation. No developmental norms or ADHD interpretation are applied.'):null,
+      btn('Add GP preparation and save',()=>go({stage:'c-prep'}),'primary'),btn('Review context',()=>go({stage:'c-context'}),'ghost'),
+      el('details',{},el('summary',{},'Research behind the design, not validation of these questions'),
+       el('p',{},'NICE informs settings, development and impact; the 2024 and 2026 youth reviews support careful multi-informant assessment and show measurement-evidence gaps. Our wording, fortnight window and support options are design choices, not a published instrument or validated model.'),
+       list(CHILD_RESEARCH.map(([t,h])=>link(t,h))),
+       el('p',{},'Before any screening accuracy claim, these exact items need clinician and lived-experience review, cognitive interviews in each age/respondent group, and prospective comparison with independent specialist assessments. Reliability, validity and subgroup fairness must be checked separately.')),
+      footer()];
+  }
+
+  function cPrep() {
+    const chips = el('div', { class: 'opts' }, CHILD.prep.chips.map(o => el('button', { class: 'btn', type: 'button', 'aria-pressed': String(st.cprep.includes(o)), on: () => { const a = st.cprep.includes(o) ? st.cprep.filter(x => x !== o) : st.cprep.concat(o); go0({ cprep: a }); } }, o)));
+    const ta = el('textarea', { class: 'sum', rows: 6, 'aria-label': CHILD.prep.notesPrompt }); ta.value = st.cnote;
+    ta.addEventListener('input', () => { st.cnote = ta.value; save(); });
+    return [top(), el('h1', {}, CHILD.prep.title),
+      el('p', { class: 'lede' }, CHILD.prep.intro),
+      el('h2', {}, 'Tick what applies'), chips,
+      el('h2', {}, CHILD.prep.notesPrompt), ta,
+      el('div', { class: 'nav' }, btn('Back', () => go({ stage: st.cfreq.length ? 'c-profile' : 'c-info' }), 'ghost'),
+        btn('See the preparation sheet', () => go({ stage: 'c-sum' }), 'primary')),
+      footer()];
+  }
+
+  function cSum() {
+    if (opts && opts.exports === false) return [top(), el('h1', {}, 'Your preparation sheet'),
+      el('p', { class: 'small' }, 'In the standalone version, buttons here print or download this sheet, made on your device. Download and print controls are switched off in this hosted review. This is how the sheet reads:'),
+      st.cfreq.length ? list(childObservationLines(st)) : null,
+      el('ul', {}, st.cprep.length ? st.cprep.map(c => el('li', {}, c)) : el('li', {}, 'Nothing ticked.')),
+      st.cnote ? el('p', {}, st.cnote) : null,
+      btn('Back', () => go({ stage: 'c-prep' }), 'ghost'), footer()];
+    return [top(), el('h1', {}, 'Your preparation sheet'),
+      el('p', { class: 'lede' }, 'Print or save this and take it to the appointment. It is made on your device; nothing is sent anywhere.'),
+      st.cfreq.length ? list(childObservationLines(st)) : null,
+      el('ul', {}, st.cprep.length ? st.cprep.map(c => el('li', {}, c)) : el('li', {}, 'Nothing ticked.')),
+      st.cnote ? el('p', {}, st.cnote) : null,
+      el('div', { class: 'nav' }, btn('Back', () => go({ stage: 'c-prep' }), 'ghost'),
+        btn('Print or save as PDF', printReport, 'primary'), btn('Download as a web page (HTML)', downloadReport)),
+      el('p', { class: 'small' }, 'The PDF comes from your browser\'s print window: choose "Save as PDF". The sheet holds information about your child\'s health, so store it safely.'),
+      footer()];
+  }
+
   const todayStr = () => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   function printReport() {
-    const holder = el('div', { id: 'print-root' }); holder.append(reportNode(st, todayStr()));
+    const holder = el('div', { id: 'print-root' });
+    if (st.path === 'child') {
+      const doc = childPrepHtml(st.cprep, st.cnote, st.cage != null ? C_AGE_BANDS[st.cage] : 'not given', todayStr(), st.cfreq.length ? childObservationLines(st) : []);
+      const parsed = new DOMParser().parseFromString(doc, 'text/html');
+      if (parsed.body) while (parsed.body.firstChild) holder.append(parsed.body.firstChild);
+    } else holder.append(reportNode(st, todayStr()));
     document.body.append(holder);
     const done = () => { holder.remove(); window.removeEventListener('afterprint', done); };
     window.addEventListener('afterprint', done);
@@ -148,14 +253,19 @@ export function mount(root, store, opts = {}) {
   }
   function downloadReport() {
     const d = new Date(), pad = n => String(n).padStart(2, '0');
-    const name = `adhd-checkin-report-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.html`;
-    const url = URL.createObjectURL(new Blob([reportHtml(st, todayStr())], { type: 'text/html' }));
+    const name = st.path === 'child'
+      ? `gp-visit-preparation-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.html`
+      : `adhd-checkin-report-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.html`;
+    const html = st.path === 'child'
+      ? childPrepHtml(st.cprep, st.cnote, st.cage != null ? C_AGE_BANDS[st.cage] : 'not given', todayStr(), st.cfreq.length ? childObservationLines(st) : [])
+      : reportHtml(st, todayStr());
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
     const a = el('a', { href: url, download: name }); document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
   function exportBox() {
     if (opts && opts.exports === false) return [el('h2', {}, 'Save your report'),
-      el('p', {}, 'In the standalone version, a button here saves your report as a PDF (through your browser\'s print window) or as a downloadable web page, made on your device. This review preview runs inside a frame that blocks downloads and printing, so those buttons are switched off here. This is how the report reads:'),
+      el('p', {}, 'In the standalone version, a button here saves your report as a PDF (through your browser\'s print window) or as a downloadable web page, made on your device. Download and print controls are switched off in this hosted review. This is how the report reads:'),
       el('details', { class: 'how' }, el('summary', {}, 'See the report'), (() => { const d = el('div', { class: 'report-inline' }); d.append(reportNode(st, todayStr())); return d; })())];
     return [el('h2', {}, 'Save your report'),
       el('p', {}, 'A report for you and, if you choose, a professional: your answers, the screener result under each published method, your day-to-day responses kept separate, the NHS guidance and the sources.'),
@@ -170,12 +280,16 @@ export function mount(root, store, opts = {}) {
       el('p', {}, 'The six screener questions, the five answer options, the two-level shading and the counting rule come from the ASRS-v1.1 6-question screener, created by Lenard Adler (NYU) and Ronald Kessler (Harvard) with the World Health Organization. NYU\'s licensing page lists it as free to use with attribution, allowing electronic versions with no other modifications. The primary paper is Kessler RC et al., Psychological Medicine 2005; 35(2): 245-256.'),
       el('p', {}, 'Harvard published an updated way of scoring the same six answers in 2024 (0 to 24 points, cutpoint 14, four bands). It is shown as a second, separate method. The two are never merged into one verdict.'),
       el('h2', {}, 'What is ours'),
-      el('p', {}, 'The 30 day-to-day statements, the six area groupings, the three context questions and the report layout were written for this tool from the symptom areas the NHS describes. They are not validated, have no score or cut-off, and are not part of the ASRS.'),
+      el('p', {}, 'The 30 day-to-day statements, the six area groupings, the three context questions, the child everyday-life questions, GP-preparation checklist and report layout were written for this tool from the symptom areas the NHS describes and what NICE says an assessment needs. The statements and checklist are not validated, have no score or cut-off, and are not part of the ASRS.'),
+      el('h2', {}, 'The England comparison'),
+      el('p', {}, 'The national figures on the result page come from NHS England\'s Adult Psychiatric Morbidity Survey 2023/4, which used these same six ASRS questions with adults across England. They describe the population, not any individual.'),
+      el('h2', {}, 'Recent research complements the adult check-in'),
+      el('p',{},'The 2024 UK adult assessment standard and 2025 adult evidence review emphasise examples, childhood history, context and functional impact. They support the purpose of the optional day-to-day picture; they do not validate our 30 statements, change the ASRS score or turn emotional regulation or executive-function difficulties into ADHD-specific markers.'),
       el('h2', {}, 'The guidance'),
-      el('p', {}, 'Traits, how to get help, waiting times and what can help are closely paraphrased from the NHS page on ADHD in adults.'),
+      el('p', {}, 'Traits, how to get help, waiting times and what can help are closely paraphrased from the NHS pages on ADHD. The child route paraphrases NICE guideline NG87, with recommendation numbers shown.'),
       el('h2', {}, 'Not used'),
-      el('p', {}, 'The longer 18-question ASRS checklist and the DSM-5 version have their own licensing terms with NYU, so they are not included. A child version is switched off until a questionnaire with clear reuse terms has been checked.'),
-      el('h2', {}, 'Sources'), el('ul', {}, LINKS.map(([t, h]) => el('li', {}, link(t, h)))),
+      el('p', {}, 'The longer 18-question ASRS checklist and the DSM-5 version have their own licensing terms with NYU, so they are not included. The child questionnaires (SDQ, NICHQ Vanderbilt, SNAP-IV) are linked to their official publishers but not built into this page: the SDQ\'s owner does not permit electronic versions without authorisation, NICHQ offers the Vanderbilt as a free download without stating interactive-rebuild rights, and the SNAP-IV\'s reuse terms are unverified. Rewording someone else\'s validated questions would break their accuracy, so it is not done.'),
+      el('h2', {}, 'Sources'), el('ul', {}, LINKS.concat(CHILD_RESEARCH, CHILD.official.map(([t, h]) => [t, h]), [APMS.source]).map(([t, h]) => el('li', {}, link(t, h)))),
       el('p', { class: 'small' }, CREDIT),
       btn('Back', () => go({ stage: st.path === 'adult' ? 'a-intro' : 'home' }), 'ghost')];
   }
@@ -191,6 +305,9 @@ export function mount(root, store, opts = {}) {
       r.posOriginal ? null : el('p', {}, 'A count below four does not rule out ADHD. The NHS says that if symptoms are affecting your studies, work or relationships, it is worth making a GP appointment.'),
       el('p', { class: 'small' }, 'This is a screen, not a diagnosis. NYU says the screener is not a standalone diagnostic tool and that diagnosis should never be made solely on its score.')));
     out.push(el('p', { class: 'small' }, `Harvard's 2024 update scores the same six answers a different way and gives ${r.points} of 24. The two methods can disagree, so they are kept apart. See "How the screener is scored" below.`));
+    out.push(el('div', { class: 'note' }, el('b', {}, APMS.title), ' ', APMS.body, ' ', el('a', { href: APMS.source[1], target: '_blank', rel: 'noopener noreferrer' }, 'Source: NHS England survey chapter'), '.'));
+    out.push(el('p', { class: 'small' }, APMS.extra+' Contains public sector information licensed under the Open Government Licence v3.0.'));
+    out.push(el('details',{},el('summary',{},'How newer research complements this result'),el('p',{},'The 2024 UK assessment standard and 2025 adult evidence review emphasise real examples, developmental history, impact and more than one information source. Our optional day-to-day questions can help organise that conversation, but they are not validated and do not alter this ASRS result. Emotional or executive-function difficulties are useful context, not proof of ADHD.'),list(CHILD_RESEARCH.filter((_,i)=>i===3||i===4).map(([t,h])=>link(t,h)))));
     out.push(...exportBox());
     // 2. What the user told us.
     if (full) {
@@ -247,6 +364,13 @@ export function mount(root, store, opts = {}) {
     else if (S === 'bridge') body = bridge();
     else if (S === 'd') body = statementsPage();
     else if (S === 'ctx') body = ctxPage();
+    else if (S === 'c-age') body = cAge();
+    else if (S === 'c-info') body = cInfo();
+    else if (S === 'c-observe') body = cObserve();
+    else if (S === 'c-context') body = cContext();
+    else if (S === 'c-profile') body = cProfile();
+    else if (S === 'c-prep') body = cPrep();
+    else if (S === 'c-sum') body = cSum();
     else if (S === 'result') body = adultResult();
     else if (S === 'about') body = about();
     else body = home();
